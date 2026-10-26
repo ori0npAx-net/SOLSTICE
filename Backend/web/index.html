@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solar Tracker Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; color: #222; }
+  header { background: #1f4e79; color: #fff; padding: 18px 28px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .85; }
+  main { max-width: 900px; margin: 24px auto; padding: 0 16px; }
+  section { background: #fff; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  h2 { margin: 0 0 12px; font-size: 17px; color: #1f4e79; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th { background: #e8eef5; text-align: left; padding: 8px 10px; }
+  td { padding: 8px 10px; border-top: 1px solid #e3e7ec; }
+  select { padding: 6px 8px; font-size: 14px; margin-bottom: 10px; }
+  .muted { color: #666; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Solar Tracker Dashboard</h1>
+  <p>Data from solar_tracker_db, served by the Java backend</p>
+</header>
+<main>
+  <section>
+    <h2>Panels</h2>
+    <table id="panels"></table>
+  </section>
+  <section>
+    <h2>Performance summary</h2>
+    <table id="summary"></table>
+  </section>
+  <section>
+    <h2>Power readings</h2>
+    <label for="panelPick" class="muted">Choose a panel: </label>
+    <select id="panelPick"></select>
+    <table id="readings"></table>
+  </section>
+</main>
+
+<script>
+// Builds a table from a list of rows. textContent is used (not innerHTML),
+// so text from the database can never run as code in the page.
+function fillTable(tableId, rows) {
+  const table = document.getElementById(tableId);
+  table.replaceChildren();
+  if (rows.length === 0) { table.textContent = 'No data.'; return; }
+  const columns = Object.keys(rows[0]);
+  const head = table.insertRow();
+  columns.forEach(c => { const th = document.createElement('th'); th.textContent = c.replace(/_/g, ' '); head.appendChild(th); });
+  rows.forEach(r => {
+    const tr = table.insertRow();
+    columns.forEach(c => { tr.insertCell().textContent = r[c]; });
+  });
+}
+
+async function getJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Request failed: ' + response.status);
+  return response.json();
+}
+
+async function loadReadings(panelId) {
+  fillTable('readings', await getJson('/api/readings?panel=' + encodeURIComponent(panelId)));
+}
+
+async function start() {
+  try {
+    const panels = await getJson('/api/panels');
+    fillTable('panels', panels);
+    fillTable('summary', await getJson('/api/summary'));
+
+    const pick = document.getElementById('panelPick');
+    panels.forEach(p => {
+      const option = document.createElement('option');
+      option.value = p.panel_id;
+      option.textContent = p.model_name + ' (panel ' + p.panel_id + ')';
+      pick.appendChild(option);
+    });
+    pick.addEventListener('change', () => loadReadings(pick.value));
+    if (panels.length > 0) loadReadings(panels[0].panel_id);
+    // every 5 seconds, ask again so new readings from the simulator show up by themselves
+    setInterval(() => { loadReadings(pick.value); getJson('/api/summary').then(r => fillTable('summary', r)); }, 5000);
+  } catch (e) {
+    document.querySelector('main').textContent = 'Could not load data. Is the Java server running and MySQL started?';
+  }
+}
+start();
+</script>
+</body>
+</html>
