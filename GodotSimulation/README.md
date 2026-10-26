@@ -1,80 +1,85 @@
-# Solstice — 16 x 16 Godot solar field
+# Solstice — 4 x 4 Godot solar field
 
-A separate Godot 4 simulation with **256 individual 300 W panels**. The original frontend, Java backend, database schema, and SQL files are unchanged.
+A separate Godot 4 simulation with **16 individual 300 W panels** (4.8 kW installed capacity), weather and surface contamination. The dashboard and Java backend now support dated history and persistent simulation state through the additive `6_simulation_history.sql` migration.
 
-## Start
+## Start or transfer to another PC
 
-Double-click **Launch.cmd** to start the local database, original Java backend, and Godot window. The existing dashboard is at http://localhost:8080.
+Keep `GodotSimulation` inside the **complete repository**, alongside `Backend/` and the original SQL scripts. Install Godot 4.4+ and double-click **Launch.cmd**. Missing Java/MariaDB runtimes download and verify automatically on first launch, which requires internet. Set `GODOT_EXE` if Godot is not in Downloads or PATH.
 
-**On another PC:** copy/download the complete repository, including `Backend/`, the original SQL files, and this folder. Install Godot 4.4+ first. Double-click `GodotSimulation/Launch.cmd`; missing Java/MariaDB runtimes download automatically on first launch, and a newly created local database automatically receives the 256-panel field. Keep internet access available during this first setup. You do not need to upload `.runtime/`, `.godot/`, or `logs/`.
+Do not upload `.runtime/`, `.godot/`, or `logs/`. Launch recreates portable runtime files. The dashboard stays at http://localhost:8080. To edit the simulation, import `project.godot` and press F5.
 
-To edit, import `project.godot` in Godot and press F5. Java 21 and MariaDB 11.4.5 are installed locally in `.runtime/`; Godot 4.7.2 is in Downloads. No system PATH changes were needed.
+On this computer the field has **13 Active and 3 Offline** panels, preserving the statuses of the retained positions. New installations choose 2–5 random Offline positions. Blue panels track the sun; red panels remain parked and report zero output.
 
-## The field
+## Weather and natural effects
 
-- Exactly 16 rows by 16 columns, one database panel per visible panel.
-- Each panel is 300 W: 76.8 kW total installed capacity.
-- Blue panels are Active and track the moving sun on two axes.
-- Red panels are Offline, remain parked, and save zero voltage/current/power.
-- The current random selection contains **192 Active and 64 Offline panels**.
-- Names identify position, such as `Godot Field R01 C01`.
-- The original two sample panels and their history are preserved separately.
-- Offline selection persists in the database; restarting does not reshuffle it.
-- The fixed-panel comparison is calculated locally, without adding another 256 panels.
+The right-hand panel offers **Automatic, Clear, Cloudy, Rain, Dust storm, and Custom** modes. Automatic mode smoothly changes conditions every 25–45 real seconds while running. Cloud and rain sliders select Custom mode.
 
-## Controls
+- **Clouds:** moving 3D clouds, a darker sky and less sunlight. Heavy clouds hide the visible sun/path.
+- **Rain:** falling streaks, a darker/wetter ground and panel appearance, reduced output, and gradual washing of dust and a smaller amount of droppings.
+- **Dust:** an uneven tan coating per panel. It accumulates with simulated time, faster during dust storms, and reduces output.
+- **Bird droppings:** irregular white patches per panel; occasional simulated bird strikes add contamination. Birds fly around the field.
+- **Cleaning:** clean the selected panel or all panels. Coatings disappear and electrical output improves under the same sunlight. Cleaning does not reactivate Offline panels.
+- **Demonstration controls:** Add dust gust affects all panels; Bird dropping targets the selected panel. These make before/after comparisons easy without waiting.
+
+Dust and droppings are randomized only on the first launch. Subsequent launches recover them from local/database state. Next day advances the calendar without clearing dirt, energy totals, or prior readings.
+
+## Main controls and readouts
 
 | Control | Behavior |
 | --- | --- |
-| Time | Scrub the illustrative 06:00–18:00 sun path |
-| Day duration | Real seconds required for 12 simulated daylight hours |
-| Clouds | Attenuate sunlight and power |
-| Tracking | Disable to hold the active motors while the sun continues moving |
-| Pause | Stop time, motor movement, energy integration, and new sends |
-| New day | Reset local time/energy/chart; preserve database history and statuses |
-| Panel menu | Inspect any individual field panel, including Offline panels |
+| Date/time | Continuous PKT calendar with midnight rollover; night output is zero |
+| Day duration | Real seconds required for a full 24 simulated hours |
+| Tracking | Hold active motors while the sun keeps moving |
+| Pause | Hold time/weather/motors/soil, energy integration and new sends |
+| Next day | Advance to tomorrow at 06:00, preserving all totals/history/dirt |
+| Panel menu | Inspect one of the 16 panels, including Offline panels |
 | Save whole field | Enable/disable database submissions |
 | Drag / scroll | Orbit / zoom |
 
-The large watt/voltage/current readout and session energy refer to the selected panel. The chart and kW heading show the combined Active field output versus the equivalent fixed field. Offline panels contribute zero to both.
+The left watt/voltage/current readout and Wh refer to the selected panel. The bottom chart and kW heading show the combined Active field versus the equivalent fixed field. Both comparisons use each panel's same contamination and weather conditions. Offline panels contribute zero to both.
 
-## Saving through the existing API
+## Existing API and database
 
-Godot fetches panel IDs/statuses from `GET /api/panels`. It sends one snapshot for all 256 field panels using individual `POST /api/readings` requests, including zero samples for Offline panels. Requests run sequentially, at most 25 per second; the next sweep begins 10 seconds after the previous one finishes. The connection label shows confirmed progress.
+Godot reads the panel IDs/statuses from `GET /api/panels` and saves one snapshot per field panel through individual `POST /api/readings` calls. A sweep includes all 16 panels and zero voltage/current for Offline panels. Requests run sequentially, at most 25/second; the next sweep starts 2 seconds after the last one completes. The connection label counts confirmed saves.
 
-No batch endpoint or backend changes are required. Database power remains its existing generated value, voltage × current. Rounding to two decimals can slightly change saved power. Field panel names are unique so the existing performance view keeps each panel separate.
+The backend receives the **final voltage/current after weather and contamination losses**. MariaDB calculates power with its existing generated column, so these effects appear in the existing dashboard. Small differences from on-screen power come from rounding to two decimals.
 
-Samples are synthetic and use real recording timestamps. Simulated time/Wh, angles, irradiance, and motor state stay inside Godot; the existing API cannot save those fields. Failed requests are not reported as saved. A failed sweep is abandoned and retried with a fresh snapshot after 10 seconds. Pausing or disabling saving holds unsent samples; an in-flight request may still finish. Statuses are loaded at startup; restart Godot after changing database statuses.
+Readings store simulated_at separately from real recorded_at, plus cloud/rain/dust/bird levels. Append-only SIMULATION_STATE checkpoints store the clock, weather, contamination, per-panel lifetime Wh, motor orientation and rolling chart. Local state autosaves every two seconds; database checkpoints follow completed sweeps. Sensor/movement tables remain separate and are not written.
 
-## Portable setup and seeding
+Failures are not counted as saved. A failed sweep is abandoned and retried with a fresh snapshot after 2 seconds. Pausing or disabling saving holds unsent samples, although an in-flight request may finish. Restart Godot after editing database statuses.
 
-On another Windows machine:
+## Reducing the previous 16 x 16 field
 
-1. Install Godot 4.4+; set `GODOT_EXE` if it is outside Downloads/PATH.
-2. Keep this folder inside the complete repository, alongside the original `Backend/` and SQL files.
-3. Run `Launch.cmd`. It downloads missing portable Java/MariaDB, initializes a local database if absent, and seeds the field when creating that database.
-4. If reusing an already configured database without the field, use `Create-Field.ps1` with the project-local database, or have its administrator import the panel records. Existing external databases are not automatically modified.
+`Create-Field.ps1` now maintains positions R01–R04 / C01–C04. Before removing the 240 extra old field positions and their dependent history, it creates a full SQL backup under `.runtime/backups/before-4x4-*.sql`. It aborts removal if the backup fails. The retained 16 panel IDs, statuses and history are kept, as are the original two sample panels. The additive history migration adds columns and a checkpoint table without changing account permissions.
 
-`Create-Field.ps1` chooses a random count between 16 and 64 Offline panels and random positions. It inserts missing field panels only; rerunning it does not duplicate panels, overwrite existing statuses, or alter original panels. The script uses the local setup account; Godot itself only uses HTTP. No database schema or permissions are changed.
+Launch runs this maintenance only for its own project-local MariaDB process; it does not automatically modify external databases. For an external database, its administrator must perform the equivalent backed-up migration. Repeated launches do not duplicate panels or reshuffle statuses.
 
-The launcher reuses services already on ports 3306/8080 and never runs the reset script. Close Godot, then run `Stop-Services.ps1` to stop only services started by this project's launcher.
+The backup contains the old data and is intentionally excluded from uploads. Keep a separate copy if you want to transfer that historical data. The two original sample panels are retained as legacy records in the database. The dashboard and its API count **only the 16 simulation panels**, using the is_simulation flag.
 
-## Model
+## Model assumptions
 
-This is an educational model with a repeatable sun path peaking at 65° elevation, not location/date-specific astronomy. Power depends on rated capacity, direct sunlight, cloud attenuation, and the angle between the panel normal and sun direction. There is no inter-panel shading, temperature, diffuse-light, inverter, or circuit model. Visible normals use the same directions as the power calculation.
+This is an educational approximation, not a location/date-specific solar forecast. The sun peaks at 65 degrees. Cloud cover reduces direct irradiance by up to 85%; dust, droppings and rain apply further bounded multiplicative losses. Current changes consistently with power, preserving P = V x I. Coefficients are demonstration settings rather than calibrated engineering data. Droppings represent a lumped coverage/blockage index, not a photovoltaic bypass-diode circuit model.
 
-The reference faces south with 35° tilt from horizontal. Motor speeds are 25°/second azimuth and 20°/second elevation in real time. Wh integrates simulated time; scrubbing does not add energy for skipped hours.
+There is no inter-panel shading, detailed cloud-shadow map, diffuse-light, temperature, inverter or electrical circuit model. The fixed reference faces south at 35 degrees tilt from horizontal. Motor rates are 25 degrees/second azimuth and 20 degrees/second elevation in real time. Lifetime Wh integrates accelerated simulated time. Next day does not invent energy for skipped hours. The simulation pauses while closed and resumes its saved calendar rather than starting over.
 
-## Verification
+## Verification and stopping
 
-Using your Godot console executable from this folder:
+Run with your Godot console executable from this folder:
 
 ```powershell
 godot --headless --path . --script res://tests/model_test.gd
+godot --headless --path . --script res://tests/environment_test.gd
 godot --headless --path . --script res://tests/scene_test.gd
+godot --headless --path . --script res://tests/timeline_test.gd
+godot --headless --path . --script res://tests/persistence_test.gd
+godot --headless --path . --script res://tests/database_restore_test.gd
 godot --headless --path . -- --field-test
 ```
 
-The first two make no database writes. The field integration check intentionally saves a full 256-panel sweep, then exits. It fails if 256 confirmations are not received within 120 seconds. API checks also confirmed all 64 Offline panels have zero latest output and all 192 Active panels have positive daylight output.
+The script tests make no database writes; database_restore_test requires an existing checkpoint. The field test intentionally saves a full **16-panel sweep**, requires 16 acknowledgements, then exits; it fails after 120 seconds. Tests cover output loss, cleaning, rain washing, dust storms, electrical consistency, paused motion, Offline output, 16 visible panels and visible/model orientation agreement.
 
-References: [Godot HTTPRequest](https://docs.godotengine.org/en/stable/classes/class_httprequest.html), [MariaDB portable installation](https://mariadb.com/docs/server/server-management/install-and-upgrade-mariadb/installing-mariadb/binary-packages/installing-mariadb-windows-zip-packages).
+Close Godot and run `Stop-Services.ps1` to stop only Java/database processes started by the launcher. Closing Godot alone stops submissions and leaves the original dashboard available.
+
+References: [Godot CPUParticles3D](https://docs.godotengine.org/en/stable/classes/class_cpuparticles3d.html), [Godot HTTPRequest](https://docs.godotengine.org/en/stable/classes/class_httprequest.html).
+
+For date filtering, legacy history, CSV export, migration, and timestamp conventions, see the repository README. Upload the updated Backend folder, GodotSimulation folder, and 6_simulation_history.sql together.

@@ -4,7 +4,7 @@ $project = $PSScriptRoot
 $repo = Split-Path $project -Parent
 $runtime = Join-Path $project '.runtime'
 $logs = Join-Path $project 'logs'
-foreach ($required in @('Backend/Server.java','1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql')) {
+foreach ($required in @('Backend/Server.java','1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql','6_simulation_history.sql')) {
     if (-not (Test-Path -LiteralPath (Join-Path $repo $required))) {
         throw "Keep GodotSimulation inside the complete Solar-Tracking-Web-Application folder. Missing: $required. Copy or download the rest of the repository too; the simulation uses its original backend and SQL files."
     }
@@ -74,14 +74,32 @@ bind-address=127.0.0.1
             $sql = @('1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql') | ForEach-Object { Get-Content (Join-Path $repo $_) -Raw }
             $sql | & $client --host=127.0.0.1 --user=root | Out-File (Join-Path $logs 'schema-init.log')
             if ($LASTEXITCODE -ne 0) { throw 'Original database scripts failed. Check schema-init.log.' }
-            & (Join-Path $project 'Create-Field.ps1')
         }
     } finally { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
 }
 
+# Apply additive history migration before starting the updated server.
+$databasePidFile = Join-Path $runtime 'database.pid'
+if (Test-Path -LiteralPath $databasePidFile) {
+    $ownedDatabase = Get-Process -Id ([int](Get-Content $databasePidFile)) -ErrorAction SilentlyContinue
+    if ($ownedDatabase -and $ownedDatabase.Path -and $ownedDatabase.Path.StartsWith($runtime, [StringComparison]::OrdinalIgnoreCase)) {
+        & (Join-Path $project 'Create-Field.ps1')
+    }
+}
+$serverHash = (Get-FileHash (Join-Path $repo 'Backend/Server.java') -Algorithm SHA256).Hash
+$hashPath = Join-Path $runtime 'backend-source.sha256'
+$backendPidFile = Join-Path $runtime 'backend.pid'
+if ((Test-Port 8080) -and (Test-Path $backendPidFile) -and ((-not (Test-Path $hashPath)) -or (Get-Content $hashPath) -ne $serverHash)) {
+    $ownedBackend = Get-Process -Id ([int](Get-Content $backendPidFile)) -ErrorAction SilentlyContinue
+    if ($ownedBackend -and $ownedBackend.Path -and $ownedBackend.Path.StartsWith($runtime, [StringComparison]::OrdinalIgnoreCase)) {
+        Stop-Process -Id $ownedBackend.Id
+        $ownedBackend.WaitForExit(5000) | Out-Null
+    }
+}
 if (-not (Test-Port 8080)) {
     $process = Start-Process $java -WorkingDirectory $repo -ArgumentList '-cp','"Backend/lib/*"','Backend/Server.java' -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $logs 'backend.log') -RedirectStandardError (Join-Path $logs 'backend-error.log')
     Set-Content (Join-Path $runtime 'backend.pid') $process.Id
+    Set-Content $hashPath $serverHash
     Wait-Port 8080
 }
 $health = $null

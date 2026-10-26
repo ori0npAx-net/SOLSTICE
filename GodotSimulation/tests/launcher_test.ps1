@@ -7,7 +7,7 @@ $fixture = Join-Path $project ('.runtime/launcher-test-' + [Guid]::NewGuid().ToS
 $simulation = Join-Path $fixture 'GodotSimulation'
 New-Item -ItemType Directory -Force $simulation,(Join-Path $fixture 'Backend') | Out-Null
 Copy-Item (Join-Path $project 'Launch.ps1') $simulation
-foreach ($file in @('1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql','Backend/Server.java')) {
+foreach ($file in @('1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql','6_simulation_history.sql','Backend/Server.java')) {
     Copy-Item (Join-Path $repo $file) (Join-Path $fixture $file)
 }
 @'

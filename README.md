@@ -1,66 +1,62 @@
-# Dual-Axis Solar Tracker: DBMS Project
+# Solstice — date-based solar tracking simulation
 
-A database-backed monitoring system for a dual-axis solar tracker.
-**Database** (MariaDB / XAMPP) + **Backend** (Java) + **Frontend** (web page).
+A Java/MariaDB dashboard connected to a Godot 4 simulation of a **4 x 4 field of sixteen 300 W panels**. The simulation includes dual-axis tracking, clouds, rain, dust, bird droppings, cleaning, Offline panels, and a continuous calendar.
 
-## How the parts connect
+## Start on Windows
 
-```
-Sensor / Simulator --POST--> Java backend (Server.java) --SQL--> Database (solar_tracker_db)
-                                   ^                                      |
-Web page (browser) ----GET---------+<-------------------------------------+
-```
+1. Copy/download the **complete repository**, including `Backend/`, `GodotSimulation/`, the JDBC driver and all SQL files.
+2. Install Godot 4.4+ (set `GODOT_EXE` if it is outside Downloads or PATH).
+3. Double-click `GodotSimulation/Launch.cmd`.
+4. Open http://localhost:8080 for the dashboard.
 
-## Folder contents
+The first launch downloads and verifies missing portable Java 21 and MariaDB runtimes. Internet access is needed for that setup. Runtime binaries, database files, and logs stay under `GodotSimulation/.runtime/` and `logs/`, excluded from Git. No administrator privileges or system PATH changes are required.
 
-| File / folder | What it is |
-|---|---|
-| `0_reset.sql` | Deletes the database (clean start) |
-| `1_schema.sql` | Creates the 5 tables and indexes |
-| `2_sample_data.sql` | One day of sample data |
-| `3_queries.sql` | 15 queries + the `panel_performance` view |
-| `4_app_user.sql` | Limited user `solar_app` (SELECT + INSERT only) |
-| `Backend/Connect.java` | Connection test |
-| `Backend/Server.java` | Web server + API |
-| `Backend/Simulator.java` | Pretend sensor that sends readings |
-| `Backend/web/` | The website (frontend files go here) |
-| `Backend/lib/` | MariaDB JDBC driver (.jar) |
+The launcher initializes a fresh local database, seeds the field, applies the additive `6_simulation_history.sql` migration, and restarts its own Java process if the server source changed. An external database/server already on the configured ports must be migrated/restarted by its administrator; the launcher only maintains services it owns.
 
-## How to run
+For an existing external MariaDB database, run `6_simulation_history.sql` before starting the updated Java server. For a fresh manual setup, run `1_schema.sql`, `2_sample_data.sql`, `3_queries.sql`, `4_app_user.sql`, and `6_simulation_history.sql`; then seed field panels using `GodotSimulation/Create-Field.ps1` with the project-local setup, or have the database administrator add the sixteen field rows and mark `is_simulation=TRUE`. Never run `0_reset.sql` unless intentionally deleting the entire database.
 
-1. Start **XAMPP** (Apache and MySQL).
-2. In phpMyAdmin, run `1_schema`, `2_sample_data`, `3_queries`, and `4_app_user` in order. Run `0_reset` only if you intentionally want to delete and recreate the database.
-3. In a terminal opened in this folder, start the server:
-   `java -cp "Backend/lib/*" Backend/Server.java`
-4. Open **http://localhost:8080** in Chrome.
-5. To send fake sensor readings, open a second terminal in this folder and run:
-   `java -cp "Backend/lib/*" Backend/Simulator.java`
-   (the dashboard updates by itself every 5 seconds)
+## Continuous dates and saved history
 
-## API (what the frontend can ask for)
+The simulation starts on the current PKT date at 08:00 once, then resumes saved state on subsequent launches. A day duration of 180 real seconds represents a full 24 simulated hours, including zero output at night. Midnight advances the calendar; **Next day** moves to the following date at 06:00 without clearing prior readings, dirt, energy totals, or the recent chart.
 
-| Address | Method | Returns / does |
-|---|---|---|
-| `/api/health` | GET | Database connection plus sensor and movement row counts |
-| `/api/panels` | GET | Panels with capacity, status, latest power and latest reading time |
-| `/api/summary` | GET | Peak and average power per panel |
-| `/api/readings?panel=1` | GET | Readings of one panel |
-| `/api/readings` | POST | Saves a reading. Body: `panel=1&voltage=18.5&current=3.2` |
+The simulator pauses while closed; it does not fabricate power readings for elapsed real-world time while it was not running. Local state autosaves every two seconds. After each completed field sweep, an append-only database checkpoint preserves the clock, weather, dirt, per-panel lifetime energy, motor orientation, and rolling chart. A fresh client can recover that checkpoint; a newer local save takes precedence.
 
-## For the frontend
+Each reading keeps two distinct timestamps:
 
-The dashboard is `Backend/web/index.html`; the Java server serves it at `http://localhost:8080`. Color controls live at `http://localhost:8080/settings`.
-It fetches `/api/panels`, `/api/summary`, `/api/readings?panel=1`, and `/api/health` from the same Java server and refreshes every five seconds. The dashboard uses the existing MariaDB tables and `panel_performance` view; no separate Node service or database is needed.
-The Settings page previews nine solid color steps between two chosen colors. Saving applies that palette to the dashboard in this browser.
+- `simulated_at`: the simulation's civil date/time in PKT, including accelerated future dates.
+- `recorded_at`: the real time the database received the sample.
 
-## Verified local setup
+Cloud cover, rain intensity, dust and bird contamination are stored alongside the electrical values. The database still calculates power as voltage x current. Older readings retain their original timestamps and have a NULL `simulated_at`; their past simulation date cannot be reconstructed accurately.
 
-The project schema, one-time sample rows, performance view, and `solar_app` account were installed in XAMPP MariaDB. `Backend/Connect.java` connected successfully, and the Java API returned the panel list, performance summary, health counts, and saved readings. The sample readings are dated October 1, 2026, so these are historical sample values rather than current live sensor measurements.
+## Dashboard
 
-## Security notes
+The dashboard counts only the **sixteen simulation panels**, not the two original SunMax sample panels. Those sample rows/history remain in the database with `is_simulation=FALSE` and are excluded from the simulation register and statistics.
 
-- Server listens on `127.0.0.1` only (this computer).
-- The backend logs in as `solar_app`, which can only SELECT and INSERT (no DELETE, DROP, ALTER).
-- All SQL uses `?` placeholders (prepared statements) against SQL injection.
-- Inputs are validated (numbers and ranges) before saving.
-- Database-provided panel labels are inserted as text rather than interpreted as HTML.
+Use the clock selector for **Simulation history**, **Earlier legacy history**, or **Both clocks**. Use the date selector for a recorded date, latest day, or all dates. The chart is spaced by elapsed time. The saved-reading table shows timestamps and weather/contamination, and **Download CSV** exports all readings in the selected panel/date/clock range. Per-panel performance statistics use that same date/clock range. The panel register always shows the latest received sample.
+
+The layout refreshes every five seconds and retains a manually selected historical date during refresh. The timeline card shows the latest stored simulation checkpoint and its real reception time.
+
+## Data model and APIs
+
+The original five tables remain. The migration adds an `is_simulation` panel flag, nullable simulation/environment columns on `ENERGY_READING`, an index, and an append-only `SIMULATION_STATE` checkpoint table. Existing data is retained. The backend's account continues to use SELECT/INSERT only.
+
+| API | Purpose |
+| --- | --- |
+| `GET /api/panels` | Sixteen field panels and latest received output |
+| `GET /api/health` | Database connection and existing sensor/movement counts |
+| `GET /api/days?clock=simulation` | Available recorded dates and counts |
+| `GET /api/readings?panel=3&date=2026-10-26&clock=simulation` | One panel's filtered history |
+| `GET /api/summary?date=2026-10-26&clock=simulation` | Per-panel peak/mean/count in that range |
+| `POST /api/readings` | Append voltage/current, simulated_at, cloud_cover, rain_intensity, dust_level, bird_level |
+| `GET /api/simulation-state` | Latest checkpoint |
+| `POST /api/simulation-state` | Append a form-encoded simulated_at and JSON state |
+
+`date` is optional; without it all dates are returned. `clock` accepts `simulation`, `legacy`, or omission for both. Existing voltage/current-only simulator requests still work and are recorded as legacy-clock values. Timestamps and weather ranges are validated; prepared statements bind submitted values.
+
+## Verification
+
+Godot tests are in `GodotSimulation/tests/`: solar calculations, environmental losses, scene behavior, calendar/leap-day rollover, local persistence, and database recovery. `--field-test` intentionally saves one sixteen-panel sweep and verifies acknowledgements.
+
+`Backend/tests/history_api_test.cjs` verifies date separation across midnight, timestamp/weather storage, history queries, field scope and validation. It removes only its own test readings using the local database setup account. `Backend/tests/dashboard_test.cjs` uses Playwright/Chrome to verify history filters, CSV, sixteen registered panels and desktop/mobile layout.
+
+See `GodotSimulation/README.md` for weather controls and model assumptions. Close Godot and run `GodotSimulation/Stop-Services.ps1` to stop only the services started by the launcher.

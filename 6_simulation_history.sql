@@ -1,0 +1,17 @@
+-- Additive migration: keep existing history and its original timestamps.
+USE solar_tracker_db;
+ALTER TABLE SOLAR_PANEL ADD COLUMN IF NOT EXISTS is_simulation BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE SOLAR_PANEL SET is_simulation = (model_name REGEXP '^Godot Field R0[1-4] C0[1-4]$');
+ALTER TABLE ENERGY_READING
+  ADD COLUMN IF NOT EXISTS simulated_at DATETIME NULL,
+  ADD COLUMN IF NOT EXISTS cloud_cover DECIMAL(5,4) NULL,
+  ADD COLUMN IF NOT EXISTS rain_intensity DECIMAL(5,4) NULL,
+  ADD COLUMN IF NOT EXISTS dust_level DECIMAL(5,4) NULL,
+  ADD COLUMN IF NOT EXISTS bird_level DECIMAL(5,4) NULL;
+CREATE INDEX IF NOT EXISTS idx_energy_sim_time ON ENERGY_READING(panel_id, simulated_at);
+CREATE TABLE IF NOT EXISTS SIMULATION_STATE (
+  snapshot_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  simulated_at DATETIME NOT NULL,
+  state_json LONGTEXT NOT NULL,
+  saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
