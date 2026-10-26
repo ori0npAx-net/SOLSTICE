@@ -4,7 +4,19 @@ $project = $PSScriptRoot
 $repo = Split-Path $project -Parent
 $runtime = Join-Path $project '.runtime'
 $logs = Join-Path $project 'logs'
+foreach ($required in @('Backend/Server.java','1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $repo $required))) {
+        throw "Keep GodotSimulation inside the complete Solar-Tracking-Web-Application folder. Missing: $required. Copy or download the rest of the repository too; the simulation uses its original backend and SQL files."
+    }
+}
+New-Item -ItemType Directory -Force $runtime | Out-Null
 New-Item -ItemType Directory -Force $logs | Out-Null
+$javaReady = @(Get-ChildItem $runtime -Directory -Filter 'jdk*' | Where-Object { Test-Path (Join-Path $_.FullName 'bin/java.exe') }).Count -gt 0
+$mariaReady = @(Get-ChildItem $runtime -Directory -Filter 'mariadb*' | Where-Object { Test-Path (Join-Path $_.FullName 'bin/mariadbd.exe') }).Count -gt 0
+if (-not $javaReady -or -not $mariaReady) {
+    Write-Host 'First-time setup: downloading missing Java/MariaDB runtimes. Internet access is required.'
+    & (Join-Path $project 'Setup-Runtimes.ps1')
+}
 
 function Test-Port([int]$Port) {
     $client = New-Object System.Net.Sockets.TcpClient
@@ -62,6 +74,7 @@ bind-address=127.0.0.1
             $sql = @('1_schema.sql','2_sample_data.sql','3_queries.sql','4_app_user.sql') | ForEach-Object { Get-Content (Join-Path $repo $_) -Raw }
             $sql | & $client --host=127.0.0.1 --user=root | Out-File (Join-Path $logs 'schema-init.log')
             if ($LASTEXITCODE -ne 0) { throw 'Original database scripts failed. Check schema-init.log.' }
+            & (Join-Path $project 'Create-Field.ps1')
         }
     } finally { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue }
 }
@@ -71,7 +84,14 @@ if (-not (Test-Port 8080)) {
     Set-Content (Join-Path $runtime 'backend.pid') $process.Id
     Wait-Port 8080
 }
-$health = Invoke-RestMethod 'http://127.0.0.1:8080/api/health' -TimeoutSec 10
+$health = $null
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    try {
+        $health = Invoke-RestMethod 'http://127.0.0.1:8080/api/health' -TimeoutSec 5
+        if ($health[0].database_status -eq 'connected') { break }
+    } catch { if ($attempt -eq 19) { throw "Backend/database connection failed. Check $logs. $($_.Exception.Message)" } }
+    Start-Sleep -Milliseconds 500
+}
 if ($health[0].database_status -ne 'connected') { throw 'The existing backend is not connected to the database.' }
 Write-Host 'Database and original Java backend are ready.'
 if (-not $BackendOnly) {

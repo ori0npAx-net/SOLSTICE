@@ -6,6 +6,8 @@ A separate Godot 4 simulation with **256 individual 300 W panels**. The original
 
 Double-click **Launch.cmd** to start the local database, original Java backend, and Godot window. The existing dashboard is at http://localhost:8080.
 
+**On another PC:** copy/download the complete repository, including `Backend/`, the original SQL files, and this folder. Install Godot 4.4+ first. Double-click `GodotSimulation/Launch.cmd`; missing Java/MariaDB runtimes download automatically on first launch, and a newly created local database automatically receives the 256-panel field. Keep internet access available during this first setup. You do not need to upload `.runtime/`, `.godot/`, or `logs/`.
+
 To edit, import `project.godot` in Godot and press F5. Java 21 and MariaDB 11.4.5 are installed locally in `.runtime/`; Godot 4.7.2 is in Downloads. No system PATH changes were needed.
 
 ## The field
@@ -49,10 +51,9 @@ Samples are synthetic and use real recording timestamps. Simulated time/Wh, angl
 On another Windows machine:
 
 1. Install Godot 4.4+; set `GODOT_EXE` if it is outside Downloads/PATH.
-2. Run `Setup-Runtimes.ps1` to download and verify portable Java/MariaDB.
-3. Run `Launch.ps1 -BackendOnly` to initialize the original database if absent.
-4. Run `Create-Field.ps1` once to add the 256 field panels.
-5. Run `Launch.cmd`.
+2. Keep this folder inside the complete repository, alongside the original `Backend/` and SQL files.
+3. Run `Launch.cmd`. It downloads missing portable Java/MariaDB, initializes a local database if absent, and seeds the field when creating that database.
+4. If reusing an already configured database without the field, use `Create-Field.ps1` with the project-local database, or have its administrator import the panel records. Existing external databases are not automatically modified.
 
 `Create-Field.ps1` chooses a random count between 16 and 64 Offline panels and random positions. It inserts missing field panels only; rerunning it does not duplicate panels, overwrite existing statuses, or alter original panels. The script uses the local setup account; Godot itself only uses HTTP. No database schema or permissions are changed.
 
