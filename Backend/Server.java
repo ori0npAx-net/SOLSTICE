@@ -18,7 +18,9 @@ import java.sql.*;
  *
  * Pages / endpoints:
  *   /                      the web page (Backend/web/index.html)
- *   /api/panels            all panels, as JSON
+ *   /settings              palette settings page (Backend/web/settings.html)
+ *   /api/health            database connection and sensor / movement counts
+ *   /api/panels            all panels, with latest saved power, as JSON
  *   /api/summary           peak and average power per panel (the panel_performance view)
  *   /api/readings?panel=1  power readings of one panel (GET = read)
  *   /api/readings          POST = save a new reading (used by the simulator / sensor)
@@ -45,9 +47,34 @@ public class Server {
             }
         });
 
+        server.createContext("/settings", ex -> {
+            if (!ex.getRequestURI().getPath().equals("/settings")
+                    && !ex.getRequestURI().getPath().equals("/settings/")) {
+                send(ex, 404, "text/plain", "Not found"); return;
+            }
+            if (!isGet(ex)) return;
+            try {
+                byte[] page = Files.readAllBytes(Path.of("Backend/web/settings.html"));
+                sendBytes(ex, 200, "text/html; charset=utf-8", page);
+            } catch (IOException e) {
+                send(ex, 500, "text/plain", "Could not find Backend/web/settings.html");
+            }
+        });
+
         server.createContext("/api/panels", ex -> {
             if (!isGet(ex)) return;
-            sendQuery(ex, "SELECT panel_id, model_name, capacity_watts, status FROM SOLAR_PANEL ORDER BY panel_id");
+            sendQuery(ex, "SELECT p.panel_id, p.model_name, p.capacity_watts, p.status, "
+                    + "e.power_output_w AS latest_power_w, e.recorded_at AS last_recorded_at "
+                    + "FROM SOLAR_PANEL p LEFT JOIN ENERGY_READING e ON e.reading_id = "
+                    + "(SELECT e2.reading_id FROM ENERGY_READING e2 WHERE e2.panel_id = p.panel_id "
+                    + "ORDER BY e2.recorded_at DESC, e2.reading_id DESC LIMIT 1) ORDER BY p.panel_id");
+        });
+
+        server.createContext("/api/health", ex -> {
+            if (!isGet(ex)) return;
+            sendQuery(ex, "SELECT 'connected' AS database_status, "
+                    + "(SELECT COUNT(*) FROM SUN_SENSOR) AS sensor_records, "
+                    + "(SELECT COUNT(*) FROM MOVEMENT_LOG) AS movement_records");
         });
 
         server.createContext("/api/summary", ex -> {

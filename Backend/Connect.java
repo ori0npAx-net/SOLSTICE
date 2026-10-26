@@ -8,7 +8,7 @@ import java.sql.SQLException;
  * Step 1 of the backend: prove that Java can talk to solar_tracker_db.
  *
  * Run (from the Solar_Tracker_DB folder, with XAMPP's MySQL running):
- *   java -cp "backend/lib/*" backend/Connect.java
+ *   java -cp "Backend/lib/*" Backend/Connect.java
  */
 public class Connect {
 
